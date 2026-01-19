@@ -309,3 +309,4 @@ print(f"После пополнения 1000: Баланс: {credit_acc.get_bala
       f"Доступно: {credit_acc.get_available_credit()}")
 
 print("\n" + credit_acc.get_history())
+#fdfdf
