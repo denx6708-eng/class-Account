@@ -1,0 +1,311 @@
+import datetime
+
+class Account:
+    """Базовый класс для банковского счета с ведением истории операций."""
+
+    def __init__(self, account_holder: str, balance: float = 0.0) -> None:
+        """
+        Инициализация банковского счета.
+
+        Args:
+            account_holder (str): Имя владельца счета
+            balance (float): Начальный баланс (по умолчанию 0)
+
+        Raises:
+            ValueError: Если начальный баланс отрицательный
+        """
+        if balance < 0:
+            raise ValueError("Начальный баланс не может быть отрицательным")
+
+        self.holder: str = account_holder
+        self._balance: float = balance
+        self.operations_history = []
+
+        # Записываем начальный баланс как первую операцию
+        if balance > 0:
+            self._record_operation('initial_deposit', balance, balance, 'success')
+
+    def _record_operation(self, operation_type: str, amount: float,
+                         balance_after: float, status: str,
+                         used_credit: bool = False) -> None:
+        """
+        Внутренний метод для записи операции в историю.
+
+        Args:
+            operation_type (str): Тип операции ('deposit', 'withdraw', 'initial_deposit')
+            amount (float): Сумма операции
+            balance_after (float): Баланс после операции
+            status (str): Статус операции ('success' или 'fail')
+            used_credit (bool): Использовались ли кредитные средства (для CreditAccount)
+        """
+        operation_record = {
+            'type': operation_type,
+            'amount': amount,
+            'date': datetime.datetime.now(),
+            'balance_after': balance_after,
+            'status': status
+        }
+        self.operations_history.append(operation_record)
+
+    def deposit(self, amount: float) -> bool:
+        """
+        Пополнение счета.
+
+        Args:
+            amount (float): Сумма для пополнения
+
+        Returns:
+            bool: True если операция успешна, False в противном случае
+
+        Raises:
+            ValueError: Если сумма отрицательная
+        """
+        if amount <= 0:
+            raise ValueError("Сумма пополнения должна быть положительной")
+
+        try:
+            self._balance += amount
+            self._record_operation('deposit', amount, self._balance, 'success')
+            return True
+        except Exception as e:
+            # В реальном приложении здесь была бы более сложная обработка ошибок
+            self._record_operation('deposit', amount, self._balance, 'fail')
+            return False
+
+    def withdraw(self, amount: float) -> bool:
+        """
+        Снятие средств со счета.
+
+        Args:
+            amount (float): Сумма для снятия
+
+        Returns:
+            bool: True если операция успешна, False в противном случае
+
+        Raises:
+            ValueError: Если сумма отрицательная
+        """
+        if amount <= 0:
+            raise ValueError("Сумма снятия должна быть положительной")
+
+        # Проверяем, достаточно ли средств
+        if self._balance >= amount:
+            self._balance -= amount
+            self._record_operation('withdraw', amount, self._balance, 'success')
+            return True
+        else:
+            # Фиксируем неудачную попытку
+            self._record_operation('withdraw', amount, self._balance, 'fail')
+            return False
+
+    def get_balance(self) -> float:
+        """
+        Получение текущего баланса.
+
+        Returns:
+            float: Текущий баланс счета
+        """
+        return self._balance
+
+    def get_history(self) -> str:
+        """
+        Возвращает историю операций в удобочитаемом формате.
+
+        Returns:
+            str: Отформатированная история операций
+        """
+        if not self.operations_history:
+            return "История операций пуста"
+
+        result = [f"История операций для счета {self.holder}:"]
+        for i, operation in enumerate(self.operations_history, 1):
+            date_str = operation['date'].strftime("%Y-%m-%d %H:%M:%S")
+            result.append(
+                f"{i}. {date_str} | {operation['type'].upper():15} | "
+                f"Сумма: {operation['amount']:10.2f} | "
+                f"Баланс: {operation['balance_after']:10.2f} | "
+                f"Статус: {operation['status']}"
+            )
+
+        return "\n".join(result)
+
+
+class CreditAccount(Account):
+    """Кредитный счет с возможностью отрицательного баланса в пределах лимита."""
+
+    def __init__(self, account_holder: str, credit_limit: float,
+                 balance: float = 0.0) -> None:
+        """
+        Инициализация кредитного счета.
+
+        Args:
+            account_holder (str): Имя владельца счета
+            credit_limit (float): Кредитный лимит
+            balance (float): Начальный баланс (по умолчанию 0)
+
+        Raises:
+            ValueError: Если баланс меньше -credit_limit
+        """
+        if balance < -credit_limit:
+            raise ValueError("Начальный баланс не может быть ниже кредитного лимита")
+
+        super().__init__(account_holder, balance)
+        self.credit_limit: float = credit_limit
+
+        # Обновляем запись начальной операции с учетом кредитного лимита
+        if self.operations_history and balance > 0:
+            self.operations_history[0]['available_credit'] = self.get_available_credit()
+
+    def _record_operation(self, operation_type: str, amount: float,
+                         balance_after: float, status: str,
+                         used_credit: bool = False) -> None:
+        """
+        Переопределенный метод для записи операций с учетом кредитных средств.
+
+        Args:
+            operation_type (str): Тип операции
+            amount (float): Сумма операции
+            balance_after (float): Баланс после операции
+            status (str): Статус операции
+            used_credit (bool): Использовались ли кредитные средства
+        """
+        operation_record = {
+            'type': operation_type,
+            'amount': amount,
+            'date': datetime.datetime.now(),
+            'balance_after': balance_after,
+            'status': status,
+            'used_credit': used_credit,
+            # проверка относится ли даныый обект к классу CreditAccount, а не Аccount
+            'available_credit': self.get_available_credit() if hasattr(self, 'credit_limit') else None
+        }
+        self.operations_history.append(operation_record)
+
+    def withdraw(self, amount: float) -> bool:
+        """
+        Снятие средств с кредитного счета с учетом кредитного лимита.
+
+        Args:
+            amount (float): Сумма для снятия
+
+        Returns:
+            bool: True если операция успешна, False в противном случае
+        """
+        if amount <= 0:
+            raise ValueError("Сумма снятия должна быть положительной")
+
+        # Проверяем, достаточно ли средств с учетом кредитного лимита
+        if self._balance - amount >= -self.credit_limit:
+            used_credit = self._balance - amount < 0
+            self._balance -= amount
+            self._record_operation('withdraw', amount, self._balance, 'success', used_credit)
+            return True
+        else:
+            # Фиксируем неудачную попытку
+            self._record_operation('withdraw', amount, self._balance, 'fail', False)
+            return False
+
+    def deposit(self, amount: float) -> bool:
+        """
+        Пополнение кредитного счета с учетом погашения кредитной части.
+
+        Args:
+            amount (float): Сумма для пополнения
+
+        Returns:
+            bool: True если операция успешна, False в противном случае
+        """
+        if amount <= 0:
+            raise ValueError("Сумма пополнения должна быть положительной")
+
+        try:
+            # Определяем, были ли использованы кредитные средства до пополнения
+            used_credit_before = self._balance < 0
+            self._balance += amount
+
+            # После пополнения проверяем, остался ли долг
+            still_using_credit = self._balance < 0
+            self._record_operation('deposit', amount, self._balance, 'success',
+                                 used_credit_before and not still_using_credit)
+            return True
+        except Exception as e:
+            self._record_operation('deposit', amount, self._balance, 'fail', False)
+            return False
+
+    def get_credit_limit(self) -> float:
+        """
+        Получение кредитного лимита.
+
+        Returns:
+            float: Кредитный лимит
+        """
+        return self._credit_limit
+
+    def get_available_credit(self) -> float:
+        """
+        Получение доступного кредита.
+
+        Returns:
+            float: Сумма доступных кредитных средств
+        """
+        return self._balance + self.credit_limit
+
+    def get_history(self) -> str:
+        """
+        Возвращает историю операций в удобочитаемом формате с кредитной информацией.
+
+        Returns:
+            str: Отформатированная история операций
+        """
+        if not self.operations_history:
+            return "История операций пуста"
+
+        result = [f"История операций для кредитного счета {self.holder} "
+                 f"(лимит: {self.credit_limit:.2f}):"]
+
+        for i, operation in enumerate(self.operations_history, 1):
+            date_str = operation['date'].strftime("%Y-%m-%d %H:%M:%S")
+            credit_info = " (кредитные)" if operation.get('used_credit', False) else ""
+
+            result.append(
+                f"{i}. {date_str} | {operation['type'].upper():15} | "
+                f"Сумма: {operation['amount']:10.2f}{credit_info:12} | "
+                f"Баланс: {operation['balance_after']:10.2f} | "
+                f"Доступно: {operation['available_credit']:10.2f} | "
+                f"Статус: {operation['status']}"
+            )
+
+        return "\n".join(result)
+
+# Тестирование базового счета
+print("=== Базовый счет ===")
+account = Account("Иван Иванов", 1000)
+print(f"Создан счет для {account.holder} с балансом {account.get_balance()}")
+
+account.deposit(500)
+print(f"После пополнения: {account.get_balance()}")
+
+if account.withdraw(300):
+    print(f"После снятия 300: {account.get_balance()}")
+
+# Неудачная попытка снятия
+if not account.withdraw(2000):
+    print("Недостаточно средств для снятия 2000")
+
+print("\n" + account.get_history())
+print("\n=== Кредитный счет ===")
+
+# Тестирование кредитного счета
+credit_acc = CreditAccount("Петр Петров", credit_limit=5000, balance=1000)
+print(f"Создан кредитный счет для {credit_acc.holder}")
+print(f"Баланс: {credit_acc.get_balance()}, Доступный кредит: {credit_acc.get_available_credit()}")
+
+credit_acc.withdraw(3000)
+print(f"После снятия 3000: Баланс: {credit_acc.get_balance()}, "
+      f"Доступно: {credit_acc.get_available_credit()}")
+
+credit_acc.deposit(1000)
+print(f"После пополнения 1000: Баланс: {credit_acc.get_balance()}, "
+      f"Доступно: {credit_acc.get_available_credit()}")
+
+print("\n" + credit_acc.get_history())
